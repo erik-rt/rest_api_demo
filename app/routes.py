@@ -1,54 +1,62 @@
-from flask_restx import Namespace, Resource
 from .models import Wallet
-from flask import json, request
-from flask_httpauth import HTTPBasicAuth
-from datetime import datetime
+from .models import db
+from flask import jsonify, request
+from flask_httpauth import HTTPTokenAuth
+from flask_restx import Namespace, Resource
+import os
 
 api = Namespace("wallets", description="Get wallet information")
 health = Namespace("health_check", description="Health check for the server")
 
-auth = HTTPBasicAuth()
+auth = HTTPTokenAuth(scheme="Bearer")
 
-users = {
-    "user": "password",
-}
+tokens = {os.getenv("BEARER_TOKEN"): "user"}
 
 
-@auth.verify_password
-def verify_password(username, password):
-    if username in users and users[username] == password:
-        return username
+@auth.verify_token
+def verify_token(token):
+    if token in tokens:
+        return tokens[token]
 
 
 @health.route("/health_check")
 class HealthCheck(Resource):
-    @api.doc("health_check")
     def get(self):
-        return json.dumps({"success": True}), 200, {"ContentType": "application/json"}
+        return jsonify(success=True)
 
 
-@api.route("/wallet_info")
+@api.route("/wallet")
 class WalletInfo(Resource):
-    @api.doc("get_wallet_info")
     @auth.login_required
     def get(self):
         wallet_address = request.args.get("wallet_address")
         from_date = request.args.get("from_date")
         to_date = request.args.get("to_date")
 
-        from_date_obj = datetime.strptime(from_date, "%Y-%m-%d").date()
-        to_date_obj = datetime.strptime(to_date, "%Y-%m-%d").date()
-
-        wallet_info = Wallet.query.filter_by(
-            wallet_address=wallet_address, from_date=from_date_obj, to_date=to_date_obj
-        ).first()
-
-        if wallet_info:
+        if not wallet_address or not from_date or not to_date:
             return {
-                "wallet_address": wallet_info.wallet_address,
-                "from_date": wallet_info.from_date.isoformat(),
-                "to_date": wallet_info.to_date.isoformat(),
-                "total_points": wallet_info.total_points,
+                "error": "Missing wallet_address, from_date, or to_date parameter"
+            }, 400
+
+        try:
+            total_points = (
+                db.session.query(db.func.sum(Wallet.point_value))
+                .filter(
+                    Wallet.wallet_address == wallet_address,
+                    Wallet.date >= from_date,
+                    Wallet.date <= to_date,
+                )
+                .scalar()
+            )
+
+            # If no records found, return 0
+            total_points = total_points if total_points is not None else 0
+
+            return {
+                "wallet_address": wallet_address,
+                "from_date": from_date,
+                "to_date": to_date,
+                "total_points": total_points,
             }
-        else:
-            api.abort(404, "Wallet information not found")
+        except Exception as e:
+            return {"error": str(e)}, 500

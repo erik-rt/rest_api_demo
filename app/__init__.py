@@ -1,5 +1,4 @@
 from flask import Flask
-from flask_sqlalchemy import SQLAlchemy
 from flask_restx import Api
 from .routes import api as api_ns, health
 from .models import db
@@ -11,7 +10,12 @@ def create_app():
 
     db.init_app(app)
 
-    api = Api(app, version="1.0", title="Wallet API", description="A simple Wallet API")
+    api = Api(
+        app,
+        version="1.0",
+        title="Wallet Points API",
+        description="API to query the total points for a wallet between two dates",
+    )
 
     api.add_namespace(api_ns, path="/api")
     api.add_namespace(health, path="/api")
